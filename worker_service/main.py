@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 import service
-from cronjob.main import start
+from cronjob.main import main
 from database import SessionLocal, engine
 
 models.Base.metadata.create_all(bind=engine)
@@ -144,7 +144,7 @@ def generate_tasks(db: Session = Depends(get_db)):
         "Обучение агента": "Средний",
         "Доставка карт и материалов": "Низкий",
     }
-    ml_json = start()
+    ml_json = main(100)
     for id in ml_json:
         worker_id = id + 1
         tasks_arr = ml_json[id]

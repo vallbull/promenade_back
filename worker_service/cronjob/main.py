@@ -1,10 +1,9 @@
-import json
 from collections import Counter
-from random import choice, choices, randint
-
-import numpy as np
-import pandas as pd
+import json
 from IPython.core.display import deepcopy
+import pandas as pd
+import numpy as np
+from random import randint, choice, choices
 
 DAYS = 5
 HOURS_PER_DAY = 8
@@ -43,7 +42,7 @@ def generate_priority(data):
     return res
 
 
-def get_tasks():
+def get_tasks(data_task):
     tasks = [[id, t, p] for id, t, p in
              zip(data_task['№ точки'], data_task['Задача'].values.tolist(), data_task['Приоретет'].values.tolist())]
 
@@ -67,12 +66,12 @@ def random_position(cur_task):
     return position
 
 
-def generate_genome():
+def generate_genome(data_task):
     genome = [[] for _ in range(DAYS * SLOTS_PER_DAY * STAFF_NUM)]
     hashmap = {}
     position_list = []
     s = 0
-    for cur_task in get_tasks():
+    for cur_task in get_tasks(data_task):
         duration = cur_task[-1]
         position = random_position(cur_task)
 
@@ -85,10 +84,10 @@ def generate_genome():
     return genome, hashmap
 
 
-def generate_population():
+def generate_population(data_task):
     population = []
     for _ in range(100):
-        genome = generate_genome()
+        genome = generate_genome(data_task)
         population.append(genome)
     return population
 
@@ -139,7 +138,7 @@ def mutation(genome):
     return mutated_genome, mutated_hash
 
 
-def get_distance(loc1, loc2):
+def get_distance(loc1, loc2, distance):
     meters = distance.loc[loc1, loc2]
     if meters == 0:
         return 0
@@ -148,28 +147,8 @@ def get_distance(loc1, loc2):
     else:
         return int(np.ceil(meters / 1000 / 20 * 60 / 30))
 
-def schedule(genome):
-    day, worker, slot = 0,0,0
-    pos = 0
-    for day_pos in range(0,640,640//5):
-        day += 1
-        worker = 0
-        print(f'================DAY{day}================')
-        for worker_pos in range(day_pos, day_pos + 640//5, 16):
-            worker += 1
-            print(f'----------WORKER{worker}----------')
-            for i in range(16):
-                s = ''
-                pos = worker_pos + i
-                key = genome[0][pos]
-                s += str(key)
-                for i in range(len(key)):
-                    s += ' '
-                    s+=str(genome[1][key[i]])
-                print(s)
 
-
-def append_time(genome):
+def append_time(genome, hashmap_address, employee_address, distance):
     score = 0
     new_genome = deepcopy(genome)
     for key in list(new_genome[1].keys()):
@@ -185,25 +164,22 @@ def append_time(genome):
                 flag = 1
                 for z in range(len(new_genome[0][i])):
                     duration_ab = get_distance(hashmap_address[new_genome[0][i][z]],
-                                               hashmap_address[new_genome[0][position][0]])
+                                               hashmap_address[new_genome[0][position][0]], distance)
         if flag == 0:
             duration_ab = get_distance(employee_address[(position % 128) // 16],
-                                       hashmap_address[new_genome[0][position][0]])
+                                       hashmap_address[new_genome[0][position][0]], distance)
 
         for p in range(position - 1, position - 1 - duration_ab, -1):
-            # if new_genome[0][p] != []:
-            #     if new_genome[0][p][0] == key:            ###################
-            #         return 4000000000000000000000000004   ###################
             new_genome[0][p].append(key)
             if p < worker_start:
                 score += 640
     return new_genome, score
 
 
-def fitness_genome(genome):
+def fitness_genome(genome, grade_tasks, employee_grade, hashmap_address, employee_address, distance):
     fit_genome = deepcopy(genome)
     hashmap = fit_genome[1]
-    fit_genome, score = append_time(fit_genome)
+    fit_genome, score = append_time(fit_genome, hashmap_address, employee_address, distance)
 
     for position, gene in enumerate(fit_genome[0]):
         if len(gene) > 1:
@@ -218,108 +194,102 @@ def fitness_genome(genome):
                     score += position
                 elif hashmap[gene[i]][0][1] == 2:
                     score += position // 1.5
-
     return score
 
 
-def create_top_population(population):
+def create_top_population(population, grade_tasks, employee_grade, hashmap_address, employee_address, distance):
     hashmap_score = {}
     for idx, genom in enumerate(population):
-        hashmap_score[idx] = fitness_genome(genom)
+        hashmap_score[idx] = fitness_genome(genom, grade_tasks, employee_grade, hashmap_address, employee_address, distance)
     hashmap_score = {k: v for k, v in sorted(hashmap_score.items(), key=lambda item: item[1])}
     top_population = []
     hashmap_score_keys = list(hashmap_score.keys())
     for i in range(len(hashmap_score) // 2):
-        top_population.append(append_time(population[hashmap_score_keys[i]])[0])  #######
+        top_population.append(append_time(population[hashmap_score_keys[i]], hashmap_address, employee_address, distance)[0])  #######
     return top_population, hashmap_score
 
 
-def evolution(n: int, best_score=10000000):
-    population = generate_population()
-    top_population, _ = create_top_population(population)
-
+def evolution(n: int, data_task, grade_tasks, employee_grade, hashmap_address, employee_address, distance, best_score=10000000):
+    population = generate_population(data_task)
+    top_population, _ = create_top_population(population, grade_tasks, employee_grade, hashmap_address, employee_address, distance)
     for i in range(n):
         for genom1, genom2 in zip(top_population[::2], top_population[1::2]):
             new_genom1, new_genom2 = crossover(genom1, genom2)
             new_genom2_mutation = mutation(new_genom2)
             top_population.extend([new_genom1, new_genom2_mutation])
 
-        top_population, hashmap_score = create_top_population(top_population)
+        top_population, hashmap_score = create_top_population(top_population, grade_tasks, employee_grade, hashmap_address, employee_address, distance)
         max_score = list(hashmap_score.values())[0]
         if max_score < best_score:
             best_score = max_score
+            print(best_score)
     return top_population[0]
 
-def get_tasks_day(top_genome):
-    task_type_hash = {3: 'Доставка карт и материалов', 2: 'Обучение агента', 1: 'Выезд на точку для стимулирования выдач'}
+
+def get_tasks_day(top_genome, hashmap_address):
+    task_type_hash = {3: 'Доставка карт и материалов', 2: 'Обучение агента',
+                      1: 'Выезд на точку для стимулирования выдач'}
     one_day_g = top_genome[0][0:128]
     work_time = Counter([x for xs in one_day_g for x in xs if x != []])
     json_dict = {}
-
     idx_for_drop = []
-
     for i in range(0, 128, 16):
         staff_address = []
-        for j in range(i, i+16):
+        for j in range(i, i + 16):
             if one_day_g[j] != []:
                 for task in range(len(one_day_g[j])):
                     address = hashmap_address[one_day_g[j][task]]
                     if address not in staff_address:
                         staff_address.append(address)
                         task_type = task_type_hash[top_genome[1][one_day_g[j][task]][0][0]]
-                        staff_name = i//16
+                        staff_name = i // 16
                         if staff_name not in json_dict.keys():
                             json_dict[staff_name] = [[address, task_type, work_time[one_day_g[j][task]] * 30]]
                         else:
                             json_dict[staff_name].append([address, task_type, work_time[one_day_g[j][task]] * 30])
                         idx_for_drop.append(one_day_g[j][task])
-
-    return json.dumps(json_dict), idx_for_drop, json_dict
-
-def create_newdata():
-    new_data = data_task[~data_task['№ точки'].isin(idx_for_drop)].copy()
-    new_data.reset_index(drop=True, inplace=True)
-    new_data['Приоретет'] = 'Высокий'
-    return new_data
+    return json_dict
 
 
-data, staff = get_data('Копия ДатаСет_Финал.xlsx')
-
-hashmap_address = {}
-for point, address in zip(data['№ точки'], data['Адрес точки, г. Краснодар']):
-    hashmap_address[point] = 'Краснодар, ' + address
-task_type = {'Доставка карт и материалов': (3, 1.5), 'Обучение агента': (2, 2),
-             'Выезд на точку для стимулирования выдач': (1, 4)}
-priority = {'Низкий': 1, 'Средний': 2, 'Высокий': 3}
-employee_grade = dict(zip(list(staff.index), staff['Грейд']))
-grade_tasks = {'Синьор': [task_type['Доставка карт и материалов'][0],
-                          task_type['Обучение агента'][0],
-                          task_type['Выезд на точку для стимулирования выдач'][0]],
-               'Мидл': [task_type['Доставка карт и материалов'][0], task_type['Обучение агента'][0]],
-               'Джун': [task_type['Доставка карт и материалов'][0]]}
-employee_address = dict(zip(list(staff.index), staff['Адрес локации']))
-
-res = generate_priority(data)
-
-distance = pd.read_excel('Копия output_v3.xlsx')
-distance = distance.set_index(0)
-distance = distance.rename(columns=fix_column_name)
-distance.index = distance.index.map(fix_index)
-distance.drop_duplicates(inplace=True)
-
-data_task = data.copy()
-data_task['Задача'] = res
-data_task = data_task.loc[data_task['Задача'] != '-']
-data_task.loc[data_task['Задача'] == 'Выезд на точку для стимулирования выдач', 'Приоретет'] = 'Высокий'
-data_task.loc[data_task['Задача'] == 'Обучение агента', 'Приоретет'] = 'Средний'
-data_task.loc[data_task['Задача'] == 'Доставка карт и материалов', 'Приоретет'] = 'Низкий'
-
-top_population = evolution(100)
-json_tasks, idx_for_drop, json_dict = get_tasks_day(top_population)
+def creat_distance(distance_filename):
+    distance = pd.read_excel(distance_filename)
+    distance = distance.set_index(0)
+    distance = distance.rename(columns=fix_column_name)
+    distance.index = distance.index.map(fix_index)
+    distance.drop_duplicates(inplace=True)
+    return distance
 
 
-def start():
-    new_data = create_newdata()
-    return json_dict # json_tasks - json файл json_dict
+def create_data_task(data, res):
+    data_task = data.copy()
+    data_task['Задача'] = res
+    data_task = data_task.loc[data_task['Задача'] != '-']
+    data_task.loc[data_task['Задача'] == 'Выезд на точку для стимулирования выдач', 'Приоретет'] = 'Высокий'
+    data_task.loc[data_task['Задача'] == 'Обучение агента', 'Приоретет'] = 'Средний'
+    data_task.loc[data_task['Задача'] == 'Доставка карт и материалов', 'Приоретет'] = 'Низкий'
+    return data_task
 
-print(start())
+
+def main(n):
+    data, staff = get_data('Копия ДатаСет_Финал.xlsx')
+    distance = creat_distance('Копия output_v3.xlsx')
+    res = generate_priority(data)
+    data_task = create_data_task(data, res)
+
+    hashmap_address = {}
+    for point, address in zip(data['№ точки'], data['Адрес точки, г. Краснодар']):
+        hashmap_address[point] = 'Краснодар, ' + address
+    task_type = {'Доставка карт и материалов': (3, 1.5), 'Обучение агента': (2, 2),
+                 'Выезд на точку для стимулирования выдач': (1, 4)}
+    employee_grade = dict(zip(list(staff.index), staff['Грейд']))
+    grade_tasks = {'Синьор': [task_type['Доставка карт и материалов'][0],
+                              task_type['Обучение агента'][0],
+                              task_type['Выезд на точку для стимулирования выдач'][0]],
+                   'Мидл': [task_type['Доставка карт и материалов'][0], task_type['Обучение агента'][0]],
+                   'Джун': [task_type['Доставка карт и материалов'][0]]}
+    employee_address = dict(zip(list(staff.index), staff['Адрес локации']))
+
+    top_population = evolution(n, data_task, grade_tasks, employee_grade, hashmap_address, employee_address, distance)
+    json_dict = get_tasks_day(top_population, hashmap_address)
+    return json_dict
+
