@@ -1,5 +1,5 @@
-import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+
 import pytz
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -144,29 +144,41 @@ def generate_tasks(db: Session = Depends(get_db)):
         "Обучение агента": "Средний",
         "Доставка карт и материалов": "Низкий",
     }
-    ml_json = main(100)
-    for id in ml_json:
-        worker_id = id + 1
-        tasks_arr = ml_json[id]
-        for order, task in enumerate(tasks_arr):
-            address, task_type, duration = task[0], task[1], task[2]
-            worker = (
-                db.query(models.Worker).filter(models.Worker.id == worker_id).first()
-            )
-            worker_name = worker.name
-            new_task = models.Tasks(
-                worker_id=worker_id,
-                worker_name=worker_name,
-                priority=tasks_priority[task_type],
-                task_type=task_type,
-                address=address,
-                duration=duration,
-                status="назначено",
-                order=order + 1,
-                date=date.today(),
-            )
-            db.add(new_task)
+
+    db_day = db.query(models.LastDayTasksGenerated).first()
+    if db_day is None or date.today() != db_day.last_day:
+        if db_day is not None:
+            db_day.last_day = date.today()
+            db.add(db_day)
             db.commit()
+        else:
+            db.add(models.LastDayTasksGenerated(last_day=date.today()))
+            db.commit()
+        ml_json = main(100)
+        for id in ml_json:
+            worker_id = id + 1
+            tasks_arr = ml_json[id]
+            for order, task in enumerate(tasks_arr):
+                address, task_type, duration = task[0], task[1], task[2]
+                worker = (
+                    db.query(models.Worker)
+                    .filter(models.Worker.id == worker_id)
+                    .first()
+                )
+                worker_name = worker.name
+                new_task = models.Tasks(
+                    worker_id=worker_id,
+                    worker_name=worker_name,
+                    priority=tasks_priority[task_type],
+                    task_type=task_type,
+                    address=address,
+                    duration=duration,
+                    status="назначено",
+                    order=order + 1,
+                    date=date.today(),
+                )
+                db.add(new_task)
+                db.commit()
     return db.query(models.Tasks).all()
 
 
@@ -177,32 +189,109 @@ def get_task_by_worker_id_for_today(id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/workers/start_task")
-def get_task_by_worker_id_for_today(
-    worker_id: int, order: int, db: Session = Depends(get_db)
-):
+def start_task(worker_id: int, order: int, db: Session = Depends(get_db)):
     task = (
         db.query(models.Tasks)
         .filter(models.Tasks.worker_id == worker_id, models.Tasks.order == order)
         .first()
     )
-    start_time = datetime.now(pytz.timezone("Europe/Moscow"))
+    start_time = datetime.now() + timedelta(hours=3)
     task.start_datetime = start_time
     db.add(task)
+    task.status = "начато"
     db.commit()
     return {"status": "ok", "start_datetime": start_time}
 
 
 @app.post("/workers/finish_task")
-def get_task_by_worker_id_for_today(
-    worker_id: int, order: int, db: Session = Depends(get_db)
-):
+def finish_task(worker_id: int, order: int, db: Session = Depends(get_db)):
     task = (
         db.query(models.Tasks)
         .filter(models.Tasks.worker_id == worker_id, models.Tasks.order == order)
         .first()
     )
-    finish_time = datetime.now(pytz.timezone("Europe/Moscow"))
+    finish_time = datetime.now() + timedelta(hours=3)
     task.finish_datetime = finish_time
+    task.status = "закончено"
     db.add(task)
     db.commit()
     return {"status": "ok", "finish_datetime": finish_time}
+
+
+@app.get("/workers/tasks_status_info")
+def tasks_status_info(db: Session = Depends(get_db)):
+    planned = db.query(models.Tasks).count()
+    finished = db.query(models.Tasks).filter(models.Tasks.status == "закончено").count()
+    return {
+        "planned": planned,
+        "finished": finished,
+        "not_finished": planned - finished,
+    }
+
+
+@app.get("/workers/get_kpi_by_id/{worker_id}")
+def get_kpi_by_id(worker_id: int, db: Session = Depends(get_db)):
+    planned = db.query(models.Tasks).filter(models.Tasks.worker_id == worker_id).count()
+    finished = (
+        db.query(models.Tasks)
+        .filter(models.Tasks.status == "закончено", models.Tasks.worker_id == worker_id)
+        .count()
+    )
+    if planned == 0:
+        kpi = 100
+    else:
+        kpi = (finished / planned) * 100
+    return {
+        "kpi": kpi,
+        "updated": (datetime.now() + timedelta(hours=3)).strftime(
+            "%I:%M%p on %B %d, %Y"
+        ),
+    }
+
+
+@app.get("/workers/get_kpi")
+def get_kpi(db: Session = Depends(get_db)):
+    rez = {}
+    for worker_id in range(1, 9):
+        planned = (
+            db.query(models.Tasks).filter(models.Tasks.worker_id == worker_id).count()
+        )
+        finished = (
+            db.query(models.Tasks)
+            .filter(
+                models.Tasks.status == "закончено", models.Tasks.worker_id == worker_id
+            )
+            .count()
+        )
+        if planned == 0:
+            kpi = 100
+        else:
+            kpi = (finished / planned) * 100
+        rez[
+            db.query(models.Tasks)
+            .filter(models.Tasks.worker_id == worker_id)
+            .first()
+            .worker_name
+        ] = kpi
+    return rez
+
+
+@app.get("/workers/get_tasks_info_by_type")
+def get_kpi(db: Session = Depends(get_db)):
+    rez = {}
+    rez["departure_to_the_point"] = (
+        db.query(models.Tasks)
+        .filter(models.Tasks.task_type == "Выезд на точку для стимулирования выдач")
+        .count()
+    )
+    rez["training"] = (
+        db.query(models.Tasks)
+        .filter(models.Tasks.task_type == "Обучение агента")
+        .count()
+    )
+    rez["delivery"] = (
+        db.query(models.Tasks)
+        .filter(models.Tasks.task_type == "Доставка карт и материалов")
+        .count()
+    )
+    return rez

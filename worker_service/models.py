@@ -35,3 +35,9 @@ class Tasks(Base):
     date = Column(Date)
     start_datetime = Column(DateTime, nullable=True)
     finish_datetime = Column(DateTime, nullable=True)
+
+
+class LastDayTasksGenerated(Base):
+    __tablename__ = "last_day_tasks_generated"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    last_day = Column(Date, nullable=True)
