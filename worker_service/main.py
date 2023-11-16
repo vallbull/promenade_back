@@ -1,6 +1,6 @@
 import json
-from datetime import date
-
+from datetime import date, datetime
+import pytz
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -148,8 +148,7 @@ def generate_tasks(db: Session = Depends(get_db)):
     for id in ml_json:
         worker_id = id + 1
         tasks_arr = ml_json[id]
-        tasks_cnt = len(tasks_arr)
-        for task in tasks_arr:
+        for order, task in enumerate(tasks_arr):
             address, task_type, duration = task[0], task[1], task[2]
             worker = (
                 db.query(models.Worker).filter(models.Worker.id == worker_id).first()
@@ -163,16 +162,47 @@ def generate_tasks(db: Session = Depends(get_db)):
                 address=address,
                 duration=duration,
                 status="назначено",
-                order=tasks_cnt,
+                order=order + 1,
                 date=date.today(),
             )
             db.add(new_task)
             db.commit()
-            tasks_cnt -= 1
     return db.query(models.Tasks).all()
 
 
 @app.get("/workers/get_tasks/{id}", response_model=list[schemas.Tasks])
 def get_task_by_worker_id_for_today(id: int, db: Session = Depends(get_db)):
-    tasks = db.query(models.Tasks).filter(models.Tasks.id == id).all()
+    tasks = db.query(models.Tasks).filter(models.Tasks.worker_id == id).all()
     return tasks
+
+
+@app.post("/workers/start_task")
+def get_task_by_worker_id_for_today(
+    worker_id: int, order: int, db: Session = Depends(get_db)
+):
+    task = (
+        db.query(models.Tasks)
+        .filter(models.Tasks.worker_id == worker_id, models.Tasks.order == order)
+        .first()
+    )
+    start_time = datetime.now(pytz.timezone("Europe/Moscow"))
+    task.start_datetime = start_time
+    db.add(task)
+    db.commit()
+    return {"status": "ok", "start_datetime": start_time}
+
+
+@app.post("/workers/finish_task")
+def get_task_by_worker_id_for_today(
+    worker_id: int, order: int, db: Session = Depends(get_db)
+):
+    task = (
+        db.query(models.Tasks)
+        .filter(models.Tasks.worker_id == worker_id, models.Tasks.order == order)
+        .first()
+    )
+    finish_time = datetime.now(pytz.timezone("Europe/Moscow"))
+    task.finish_datetime = finish_time
+    db.add(task)
+    db.commit()
+    return {"status": "ok", "finish_datetime": finish_time}

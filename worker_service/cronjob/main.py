@@ -222,7 +222,7 @@ def evolution(n: int, data_task, grade_tasks, employee_grade, hashmap_address, e
         max_score = list(hashmap_score.values())[0]
         if max_score < best_score:
             best_score = max_score
-            print(best_score)
+            # print(best_score)
     return top_population[0]
 
 
