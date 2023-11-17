@@ -1,9 +1,10 @@
 import csv
-from test import get_dist
 import time
+from test import get_dist
+
+import requests
 from geopy.distance import geodesic
 from geopy.point import Point
-import requests
 
 API_KEY = '9fe10d95-b359-4cff-b6c4-d1c47b8e3744'
 d = {}

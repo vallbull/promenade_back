@@ -267,12 +267,11 @@ def get_kpi(db: Session = Depends(get_db)):
             kpi = 100
         else:
             kpi = (finished / planned) * 100
-        rez[
-            db.query(models.Tasks)
-            .filter(models.Tasks.worker_id == worker_id)
-            .first()
-            .worker_name
-        ] = kpi
+        worker = db.query(models.Tasks).filter(models.Tasks.worker_id == worker_id).first()
+        if worker is not None:
+            rez[
+                worker.worker_name
+            ] = kpi
     return rez
 
 

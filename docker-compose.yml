@@ -37,7 +37,7 @@ services:
       depends_on:
         postgresql:
           condition: service_healthy
-  react:
-    build: ./sovkombank_visitor
-    ports:
-      - "5173:5173"
+#  react:
+#    build: ./sovkombank_visitor
+#    ports:
+#      - "5173:5173"
